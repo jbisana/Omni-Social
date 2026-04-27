@@ -2,14 +2,23 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 // We initialize it dynamically so it doesn't break if API key is missing during import.
 let ai: GoogleGenAI | null = null;
+let currentApiKey: string | null = null;
 
-export function getGenAIClient(): GoogleGenAI {
-  if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY environment variable is required');
-    }
+export interface AppSettings {
+  model: string;
+  apiKey: string;
+}
+
+export function getGenAIClient(customApiKey?: string): GoogleGenAI {
+  const apiKey = customApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is required');
+  }
+
+  // Re-initialize if the API key changed
+  if (!ai || currentApiKey !== apiKey) {
     ai = new GoogleGenAI({ apiKey });
+    currentApiKey = apiKey;
   }
   return ai;
 }
@@ -27,11 +36,11 @@ export interface GeneratedDrafts {
   instagram: SocialPostDraft;
 }
 
-export async function generateDrafts(idea: string, tone: string, hashtags: string, useEmojis: boolean): Promise<GeneratedDrafts> {
-  const client = getGenAIClient();
+export async function generateDrafts(idea: string, tone: string, hashtags: string, useEmojis: boolean, settings: AppSettings): Promise<GeneratedDrafts> {
+  const client = getGenAIClient(settings.apiKey);
   const emojiInstruction = useEmojis ? "Use emojis appropriately." : "DO NOT use any emojis in the posts.";
   const response = await client.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: settings.model,
     contents: `Idea: ${idea}\nTone: ${tone}\nHashtags (for Instagram): ${hashtags}\n\nAct as an expert social media manager. I need drafted posts for Twitter/X (short & punchy), LinkedIn (long-form, professional but engaging), and Instagram (visual-focused with relevant hashtags) based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags into the Instagram post.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive, contextually relevant prompt for an AI image generator to create a unique image tailored to each platform's style and audience based on the idea. The image prompt MUST include detailed aesthetics, subject matter, mood/lighting, and composition to generate a high quality and specific image.`,
     config: {
       responseMimeType: 'application/json',
@@ -76,15 +85,15 @@ export async function generateDrafts(idea: string, tone: string, hashtags: strin
   return JSON.parse(text) as GeneratedDrafts;
 }
 
-export async function regenerateCaption(idea: string, tone: string, platform: string, hashtags: string, useEmojis: boolean): Promise<SocialPostDraft> {
-  const client = getGenAIClient();
+export async function regenerateCaption(idea: string, tone: string, platform: string, hashtags: string, useEmojis: boolean, settings: AppSettings): Promise<SocialPostDraft> {
+  const client = getGenAIClient(settings.apiKey);
   const emojiInstruction = useEmojis ? "Use emojis appropriately." : "DO NOT use any emojis.";
   let platformInstruction = 'Twitter/X (short & punchy)';
   if (platform === 'linkedin') platformInstruction = 'LinkedIn (long-form, professional)';
   if (platform === 'instagram') platformInstruction = 'Instagram (visual-focused with relevant hashtags)';
   
   const response = await client.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: settings.model,
     contents: `Idea: ${idea}\nTone: ${tone}\nHashtags: ${hashtags}\n\nAct as an expert social media manager. I need a drafted post for ${platformInstruction} based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags if applicable.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive prompt for an AI image generator to create a unique image tailored to this platform's style and audience based on the idea.`,
     config: {
       responseMimeType: 'application/json',
@@ -104,8 +113,8 @@ export async function regenerateCaption(idea: string, tone: string, platform: st
   return JSON.parse(text) as SocialPostDraft;
 }
 
-export async function generateImage(prompt: string, aspectRatio: "16:9" | "4:3" | "1:1"): Promise<string> {
-  const client = getGenAIClient();
+export async function generateImage(prompt: string, aspectRatio: "16:9" | "4:3" | "1:1", settings: AppSettings): Promise<string> {
+  const client = getGenAIClient(settings.apiKey);
   const response = await client.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {

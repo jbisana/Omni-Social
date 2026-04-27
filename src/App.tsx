@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Twitter, Linkedin, Instagram, Sparkles, Loader2, RefreshCcw, Send, CheckCircle2, AlertCircle, Save, Calendar, Edit2, Check, Share2, BarChart2, Clock, FileText, Smile, Image as ImageIcon } from 'lucide-react';
-import { generateDrafts, generateImage, regenerateCaption, GeneratedDrafts } from './services/gemini';
+import { Twitter, Linkedin, Instagram, Sparkles, Loader2, RefreshCcw, Send, CheckCircle2, AlertCircle, Save, Calendar, Edit2, Check, Share2, BarChart2, Clock, FileText, Smile, Image as ImageIcon, Settings as SettingsIcon, X, ChevronDown } from 'lucide-react';
+import { generateDrafts, generateImage, regenerateCaption, GeneratedDrafts, AppSettings } from './services/gemini';
 
 type Tone = 'professional' | 'witty' | 'urgent';
 
@@ -30,6 +30,25 @@ export default function App() {
 
   const [savedPosts, setSavedPosts] = useState<{platform: string, post: string, imageUrl?: string, scheduledAt?: string}[]>([]);
 
+  // Settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('omnisocial_settings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      model: 'gemini-3-flash-preview',
+      apiKey: ''
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('omnisocial_settings', JSON.stringify(settings));
+  }, [settings]);
+
   useEffect(() => {
     const saved = localStorage.getItem('omnisocial_saved_posts');
     if (saved) {
@@ -53,7 +72,7 @@ export default function App() {
     setContent({ twitter: null, linkedin: null, instagram: null });
     
     try {
-      const drafts = await generateDrafts(idea, tone, hashtags, true);
+      const drafts = await generateDrafts(idea, tone, hashtags, true, settings);
       const applyLink = (text: string) => customLink.trim() ? `${text}\n\n${customLink.trim()}` : text;
       
       setContent({
@@ -76,7 +95,7 @@ export default function App() {
 
   const generatePlatformImage = async (platform: 'twitter' | 'linkedin' | 'instagram', prompt: string, ratio: '16:9' | '4:3' | '1:1') => {
     try {
-      const imageUrl = await generateImage(prompt, ratio);
+      const imageUrl = await generateImage(prompt, ratio, settings);
       setContent(prev => ({
         ...prev,
         [platform]: { ...prev[platform]!, imageUrl, loadingImage: false }
@@ -104,7 +123,7 @@ export default function App() {
     }));
     
     try {
-      const draft = await regenerateCaption(idea, tone, platform, hashtags, currentUseEmojis);
+      const draft = await regenerateCaption(idea, tone, platform, hashtags, currentUseEmojis, settings);
       const applyLink = (text: string) => customLink.trim() ? `${text}\n\n${customLink.trim()}` : text;
       
       setContent(p => ({
@@ -142,18 +161,87 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Header */}
-      <header className="h-16 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-8 shrink-0 sticky top-0 z-10">
+      <header className="h-16 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-8 shrink-0 sticky top-0 z-20">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center text-white font-bold">
             <Sparkles className="w-4 h-4" />
           </div>
           <span className="text-white font-semibold text-lg tracking-tight">Omni<span className="text-blue-400">Social</span></span>
         </div>
-        <div className="flex items-center space-x-6">
-          <div className="text-slate-400 text-sm">Cross-Platform <span className="text-white font-medium">AI Generator</span></div>
-          <div className="w-8 h-8 bg-slate-700 rounded-full"></div>
+        <div className="flex items-center space-x-4">
+          <div className="hidden md:flex flex-col items-end">
+            <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Model</div>
+            <div className="text-white text-xs font-medium">{settings.model}</div>
+          </div>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="w-10 h-10 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-full flex items-center justify-center transition-colors shadow-lg"
+            title="Settings"
+          >
+            <SettingsIcon className="w-5 h-5" />
+          </button>
         </div>
       </header>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-slate-600" />
+                <h2 className="text-lg font-bold text-slate-800">Application Settings</h2>
+              </div>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Gemini AI Model</label>
+                <div className="relative group">
+                  <select
+                    value={settings.model}
+                    onChange={(e) => setSettings(s => ({ ...s, model: e.target.value }))}
+                    className="w-full h-11 pl-4 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 hover:border-slate-300 transition-all cursor-pointer"
+                  >
+                    <option value="gemini-3-flash-preview">Gemini Flash (Default)</option>
+                    <option value="gemini-3.1-pro-preview">Gemini Pro (Smartest)</option>
+                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Fastest)</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-slate-600 transition-colors" />
+                </div>
+                <p className="text-[10px] text-slate-400">Flash is recommended for most post generation tasks.</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Custom API Key (Optional)</label>
+                <input
+                  type="password"
+                  value={settings.apiKey}
+                  onChange={(e) => setSettings(s => ({ ...s, apiKey: e.target.value }))}
+                  placeholder="Paste your Gemini API key..."
+                  className="w-full h-11 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono"
+                />
+                <p className="text-[10px] text-slate-400 italic">Leave blank to use the system default key.</p>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all transform active:scale-[0.98]"
+                >
+                  Save & Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Control Panel */}
       <div className="p-6 bg-white border-b border-slate-200 shrink-0 shadow-sm relative z-10">
