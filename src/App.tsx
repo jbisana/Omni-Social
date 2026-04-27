@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Twitter, Linkedin, Instagram, Sparkles, Loader2, RefreshCcw, Send, CheckCircle2, AlertCircle, Save, Calendar, Edit2, Check } from 'lucide-react';
-import { generateDrafts, generateImage, GeneratedDrafts } from './services/gemini';
+import { Twitter, Linkedin, Instagram, Sparkles, Loader2, RefreshCcw, Send, CheckCircle2, AlertCircle, Save, Calendar, Edit2, Check, Share2, BarChart2, Clock, FileText, Smile, Image as ImageIcon } from 'lucide-react';
+import { generateDrafts, generateImage, regenerateCaption, GeneratedDrafts } from './services/gemini';
 
 type Tone = 'professional' | 'witty' | 'urgent';
 
@@ -10,12 +10,15 @@ interface PlatformContent {
   imageUrl?: string;
   loadingImage?: boolean;
   imageError?: string;
+  loadingCaption?: boolean;
+  useEmojis?: boolean;
 }
 
 export default function App() {
   const [idea, setIdea] = useState('');
   const [tone, setTone] = useState<Tone>('professional');
   const [hashtags, setHashtags] = useState('');
+  const [customLink, setCustomLink] = useState('');
   
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -50,12 +53,13 @@ export default function App() {
     setContent({ twitter: null, linkedin: null, instagram: null });
     
     try {
-      const drafts = await generateDrafts(idea, tone, hashtags);
+      const drafts = await generateDrafts(idea, tone, hashtags, true);
+      const applyLink = (text: string) => customLink.trim() ? `${text}\n\n${customLink.trim()}` : text;
       
       setContent({
-        twitter: { ...drafts.twitter, loadingImage: true },
-        linkedin: { ...drafts.linkedin, loadingImage: true },
-        instagram: { ...drafts.instagram, loadingImage: true }
+        twitter: { ...drafts.twitter, post: applyLink(drafts.twitter.post), loadingImage: true, useEmojis: true },
+        linkedin: { ...drafts.linkedin, post: applyLink(drafts.linkedin.post), loadingImage: true, useEmojis: true },
+        instagram: { ...drafts.instagram, post: applyLink(drafts.instagram.post), loadingImage: true, useEmojis: true }
       });
       setIsGeneratingDrafts(false);
 
@@ -89,6 +93,51 @@ export default function App() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
+
+  const handleRegenerateCaption = async (platform: 'twitter' | 'linkedin' | 'instagram', emojiOverride?: boolean) => {
+    if (!content[platform]) return;
+    const currentUseEmojis = emojiOverride !== undefined ? emojiOverride : (content[platform]!.useEmojis ?? true);
+    
+    setContent(p => ({
+      ...p,
+      [platform]: { ...p[platform]!, loadingCaption: true, useEmojis: currentUseEmojis }
+    }));
+    
+    try {
+      const draft = await regenerateCaption(idea, tone, platform, hashtags, currentUseEmojis);
+      const applyLink = (text: string) => customLink.trim() ? `${text}\n\n${customLink.trim()}` : text;
+      
+      setContent(p => ({
+        ...p,
+        [platform]: { ...p[platform]!, post: applyLink(draft.post), imagePrompt: draft.imagePrompt, loadingCaption: false }
+      }));
+    } catch (err: any) {
+      console.error(err);
+      setContent(p => ({
+        ...p,
+        [platform]: { ...p[platform]!, loadingCaption: false }
+      }));
+    }
+  };
+
+  const handleRegenerateImage = async (platform: 'twitter' | 'linkedin' | 'instagram') => {
+    if (!content[platform]) return;
+    setContent(p => ({
+      ...p,
+      [platform]: { ...p[platform]!, loadingImage: true, imageError: undefined }
+    }));
+    const ratio = platform === 'twitter' ? '16:9' : platform === 'linkedin' ? '4:3' : '1:1';
+    await generatePlatformImage(platform, content[platform]!.imagePrompt, ratio);
+  };
+
+  const getAnalytics = () => {
+    const now = new Date();
+    const scheduled = savedPosts.filter(p => p.scheduledAt && new Date(p.scheduledAt) > now).length;
+    const published = savedPosts.filter(p => p.scheduledAt && new Date(p.scheduledAt) <= now).length;
+    const drafts = savedPosts.filter(p => !p.scheduledAt).length;
+    return { scheduled, published, drafts, total: savedPosts.length };
+  };
+  const stats = getAnalytics();
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
@@ -148,6 +197,17 @@ export default function App() {
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 shadow-sm"
             />
           </div>
+          <div className="w-full md:w-56">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Custom Link</label>
+            <input
+              type="text"
+              value={customLink}
+              onChange={(e) => setCustomLink(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 shadow-sm"
+              onKeyDown={(e) => e.key === 'Enter' && !isGeneratingDrafts && handleGenerate()}
+            />
+          </div>
           <button
             onClick={handleGenerate}
             disabled={!idea.trim() || isGeneratingDrafts}
@@ -188,6 +248,8 @@ export default function App() {
                 onContentChange={(val) => setContent(p => ({ ...p, twitter: { ...p.twitter!, post: val } }))}
                 onSave={(scheduledAt) => content.twitter && savePost({ platform: 'twitter', post: content.twitter.post, imageUrl: content.twitter.imageUrl, scheduledAt })}
                 onCopy={() => copyToClipboard(content.twitter!.post)}
+                onRegenerateCaption={(useEmojis) => handleRegenerateCaption('twitter', useEmojis)}
+                onRegenerateImage={() => handleRegenerateImage('twitter')}
                 aspectRatio="aspect-video"
                 aspectText="16:9 ASPECT"
               />
@@ -204,6 +266,8 @@ export default function App() {
                 onContentChange={(val) => setContent(p => ({ ...p, linkedin: { ...p.linkedin!, post: val } }))}
                 onSave={(scheduledAt) => content.linkedin && savePost({ platform: 'linkedin', post: content.linkedin.post, imageUrl: content.linkedin.imageUrl, scheduledAt })}
                 onCopy={() => copyToClipboard(content.linkedin!.post)}
+                onRegenerateCaption={(useEmojis) => handleRegenerateCaption('linkedin', useEmojis)}
+                onRegenerateImage={() => handleRegenerateImage('linkedin')}
                 aspectRatio="aspect-[4/3]"
                 aspectText="4:3 ASPECT"
               />
@@ -220,6 +284,8 @@ export default function App() {
                 onContentChange={(val) => setContent(p => ({ ...p, instagram: { ...p.instagram!, post: val } }))}
                 onSave={(scheduledAt) => content.instagram && savePost({ platform: 'instagram', post: content.instagram.post, imageUrl: content.instagram.imageUrl, scheduledAt })}
                 onCopy={() => copyToClipboard(content.instagram!.post)}
+                onRegenerateCaption={(useEmojis) => handleRegenerateCaption('instagram', useEmojis)}
+                onRegenerateImage={() => handleRegenerateImage('instagram')}
                 aspectRatio="aspect-square"
                 aspectText="1:1 ASPECT"
               />
@@ -228,19 +294,66 @@ export default function App() {
         )}
 
         {savedPosts.length > 0 && (
-          <div className="max-w-7xl mx-auto w-full mt-12 bg-white p-6 rounded-xl border border-slate-200">
-            <h2 className="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2">Saved / Scheduled Posts</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {savedPosts.map((sp, i) => (
-                <div key={i} className="border border-slate-200 rounded-lg p-4 bg-slate-50 relative">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-500 uppercase">{sp.platform}</span>
-                    {sp.scheduledAt && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(sp.scheduledAt).toLocaleString()}</span>}
-                  </div>
-                  <p className="text-xs text-slate-700 line-clamp-3 mb-2">{sp.post}</p>
-                  {sp.imageUrl && <img src={sp.imageUrl} className="w-16 h-16 object-cover rounded border border-slate-200" alt="Saved" />}
+          <div className="max-w-7xl mx-auto w-full mt-12 mb-8">
+            {/* Analytics Section */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-col items-center justify-between md:flex-row gap-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-100 p-2 rounded-lg">
+                  <BarChart2 className="w-5 h-5 text-indigo-700" />
                 </div>
-              ))}
+                <h2 className="text-lg font-bold text-slate-800">Post Analytics</h2>
+              </div>
+              <div className="flex gap-4 md:gap-8">
+                 <div className="text-center">
+                   <div className="text-2xl font-bold text-slate-800">{stats.total}</div>
+                   <div className="text-xs text-slate-500 font-medium uppercase tracking-wider">Total</div>
+                 </div>
+                 <div className="w-px bg-slate-200"></div>
+                 <div className="text-center">
+                   <div className="text-2xl font-bold text-blue-600">{stats.scheduled}</div>
+                   <div className="text-xs text-slate-500 font-medium uppercase tracking-wider flex items-center gap-1 justify-center"><Clock className="w-3 h-3"/> Scheduled</div>
+                 </div>
+                 <div className="w-px bg-slate-200"></div>
+                 <div className="text-center">
+                   <div className="text-2xl font-bold text-indigo-600">{stats.drafts}</div>
+                   <div className="text-xs text-slate-500 font-medium uppercase tracking-wider flex items-center gap-1 justify-center"><FileText className="w-3 h-3"/> Drafts</div>
+                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <h2 className="text-md font-bold text-slate-800 mb-4 border-b border-slate-100 pb-2">Saved / Scheduled Posts</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {savedPosts.map((sp, i) => {
+                  const isPublished = sp.scheduledAt && new Date(sp.scheduledAt) <= new Date();
+                  return (
+                    <div key={i} className="border border-slate-200 rounded-lg p-4 bg-slate-50 relative flex flex-col">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1">
+                           {sp.platform === 'twitter' && <Twitter className="w-3 h-3" />}
+                           {sp.platform === 'linkedin' && <Linkedin className="w-3 h-3" />}
+                           {sp.platform === 'instagram' && <Instagram className="w-3 h-3" />}
+                           {sp.platform}
+                        </span>
+                        {sp.scheduledAt ? (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-medium ${isPublished ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {isPublished ? <CheckCircle2 className="w-3 h-3"/> : <Calendar className="w-3 h-3"/>}
+                            {isPublished ? 'Published' : new Date(sp.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium"><FileText className="w-3 h-3"/> Draft</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-700 line-clamp-4 mb-3 leading-relaxed flex-1">{sp.post}</p>
+                      {sp.imageUrl && (
+                         <div className="aspect-video w-full rounded border border-slate-200 overflow-hidden shrink-0">
+                           <img src={sp.imageUrl} className="w-full h-full object-cover" alt="Saved Content Media" />
+                         </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -264,6 +377,8 @@ function PostCard({
   onCopy,
   onContentChange,
   onSave,
+  onRegenerateCaption,
+  onRegenerateImage,
   aspectRatio,
   aspectText
 }: { 
@@ -275,6 +390,8 @@ function PostCard({
   onCopy: () => void;
   onContentChange: (val: string) => void;
   onSave: (scheduledAt?: string) => void;
+  onRegenerateCaption: (useEmojis: boolean) => void;
+  onRegenerateImage: () => void;
   aspectRatio: string;
   aspectText: string;
 }) {
@@ -282,6 +399,22 @@ function PostCard({
   const [isEditing, setIsEditing] = useState(false);
   const [scheduleDate, setScheduleDate] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);
+
+  const handleShare = async () => {
+    if (!content) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${title} Draft`,
+          text: content.post
+        });
+      } catch (err) {
+        console.log('Error sharing', err);
+      }
+    } else {
+      window.location.href = `mailto:?subject=${encodeURIComponent(title + ' Draft')}&body=${encodeURIComponent(content.post)}`;
+    }
+  };
 
   return (
     <div className={`bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm h-full transform transition-all duration-300 ${isLoadingDraft ? 'opacity-70 scale-[0.98]' : 'opacity-100'}`}>
@@ -292,9 +425,31 @@ function PostCard({
           </div>
           <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">{title}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {!isLoadingDraft && content && (
             <>
+              {content.loadingCaption ? (
+                 <Loader2 className="w-4 h-4 animate-spin text-slate-400 mr-1" />
+              ) : (
+                <>
+                  <button
+                    onClick={() => onRegenerateCaption(!content.useEmojis)}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${content.useEmojis ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}
+                    title={content.useEmojis ? 'Disable Emojis (Regenerates caption)' : 'Enable Emojis (Regenerates caption)'}
+                  >
+                    <Smile className="w-3 h-3" />
+                    {content.useEmojis ? 'On' : 'Off'}
+                  </button>
+                  <button 
+                    onClick={() => onRegenerateCaption(content.useEmojis ?? true)}
+                    className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+                    title="Regenerate Caption"
+                  >
+                     <RefreshCcw className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+              <div className="w-px h-4 bg-slate-200 mx-1"></div>
               <button 
                 onClick={() => setIsEditing(!isEditing)}
                 className="text-slate-400 hover:text-blue-600 transition-colors p-1"
@@ -303,8 +458,15 @@ function PostCard({
                 {isEditing ? <Check className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
               </button>
               <button 
+                onClick={handleShare}
+                className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+                title="Share"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+              <button 
                 onClick={onCopy}
-                className="text-[10px] text-blue-600 font-bold uppercase tracking-wider bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
+                className="text-[10px] text-blue-600 font-bold uppercase tracking-wider bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors ml-1"
                 title="Copy Text"
               >
                 Copy
@@ -315,7 +477,7 @@ function PostCard({
       </div>
 
       <div className="p-4 flex-1 overflow-hidden flex flex-col group relative">
-        {isLoadingDraft ? (
+        {isLoadingDraft && !content ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 gap-3">
             <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
             <span className="text-xs text-slate-500 font-medium">Drafting content...</span>
@@ -336,7 +498,7 @@ function PostCard({
               )}
             </div>
             
-            <div className={`${platform !== 'instagram' ? 'mt-4' : 'mb-0'} ${aspectRatio} bg-slate-200 rounded border border-slate-300 relative flex items-center justify-center overflow-hidden shrink-0`}>
+            <div className={`${platform !== 'instagram' ? 'mt-4' : 'mb-0'} ${aspectRatio} bg-slate-200 rounded border border-slate-300 relative flex items-center justify-center overflow-hidden shrink-0 group/img`}>
               {content.loadingImage ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-100">
                    <div className="relative">
@@ -348,14 +510,20 @@ function PostCard({
               ) : content.imageUrl ? (
                 <>
                    <img src={content.imageUrl} alt={`${platform} generated graphic`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                     <a href={content.imageUrl} download={`${platform}-graphic.png`} className="bg-white text-slate-900 text-xs font-semibold px-3 py-1.5 rounded shadow-sm hover:bg-slate-50">
-                       Download
+                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                     <button onClick={onRegenerateImage} className="bg-white text-slate-900 text-xs font-semibold px-3 py-1.5 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1">
+                       <RefreshCcw className="w-3 h-3" /> Regenerate
+                     </button>
+                     <a href={content.imageUrl} download={`${platform}-graphic.png`} className="bg-white text-slate-900 text-xs font-semibold px-3 py-1.5 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1">
+                       <ImageIcon className="w-3 h-3" /> Download
                      </a>
                    </div>
                 </>
               ) : (
-                <span className="text-xs text-slate-500 font-medium">{content.imageError || 'Image unavailable'}</span>
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-xs text-slate-500 font-medium">{content.imageError || 'Image unavailable'}</span>
+                  <button onClick={onRegenerateImage} className="text-xs text-blue-600 font-medium px-3 py-1.5 bg-blue-50 rounded hover:bg-blue-100 transition-colors">Try Again</button>
+                </div>
               )}
             </div>
           </>
