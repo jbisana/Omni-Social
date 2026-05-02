@@ -36,12 +36,15 @@ export interface GeneratedDrafts {
   instagram: SocialPostDraft;
 }
 
-export async function generateDrafts(idea: string, tone: string, hashtags: string, useEmojis: boolean, settings: AppSettings): Promise<GeneratedDrafts> {
+export async function generateDrafts(idea: string, tone: string, hashtags: string, useEmojis: boolean, settings: AppSettings, audience: string, brandVoice: string): Promise<GeneratedDrafts> {
   const client = getGenAIClient(settings.apiKey);
   const emojiInstruction = useEmojis ? "Use emojis appropriately." : "DO NOT use any emojis in the posts.";
+  const audienceInstruction = audience.trim() ? `\nTarget Audience: ${audience}` : "";
+  const brandVoiceInstruction = brandVoice.trim() ? `\nBrand Voice/Persona: ${brandVoice}` : "";
+  
   const response = await client.models.generateContent({
     model: settings.model,
-    contents: `Idea: ${idea}\nTone: ${tone}\nHashtags (for Instagram): ${hashtags}\n\nAct as an expert social media manager. I need drafted posts for Twitter/X (short & punchy), LinkedIn (long-form, professional but engaging), and Instagram (visual-focused with relevant hashtags) based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags into the Instagram post.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive, contextually relevant prompt for an AI image generator to create a unique image tailored to each platform's style and audience based on the idea. The image prompt MUST include detailed aesthetics, subject matter, mood/lighting, and composition to generate a high quality and specific image.`,
+    contents: `Idea: ${idea}\nTone: ${tone}${audienceInstruction}${brandVoiceInstruction}\nHashtags (for Instagram): ${hashtags}\n\nAct as an expert social media manager. I need drafted posts for Twitter/X (short & punchy), LinkedIn (long-form, professional but engaging), and Instagram (visual-focused with relevant hashtags) based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags into the Instagram post.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive, contextually relevant prompt for an AI image generator to create a unique image tailored to each platform's style and audience based on the idea. The image prompt MUST include detailed aesthetics, subject matter, mood/lighting, and composition to generate a high quality and specific image.`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -85,16 +88,19 @@ export async function generateDrafts(idea: string, tone: string, hashtags: strin
   return JSON.parse(text) as GeneratedDrafts;
 }
 
-export async function regenerateCaption(idea: string, tone: string, platform: string, hashtags: string, useEmojis: boolean, settings: AppSettings): Promise<SocialPostDraft> {
+export async function regenerateCaption(idea: string, tone: string, platform: string, hashtags: string, useEmojis: boolean, settings: AppSettings, audience: string, brandVoice: string): Promise<SocialPostDraft> {
   const client = getGenAIClient(settings.apiKey);
   const emojiInstruction = useEmojis ? "Use emojis appropriately." : "DO NOT use any emojis.";
+  const audienceInstruction = audience.trim() ? `\nTarget Audience: ${audience}` : "";
+  const brandVoiceInstruction = brandVoice.trim() ? `\nBrand Voice/Persona: ${brandVoice}` : "";
+  
   let platformInstruction = 'Twitter/X (short & punchy)';
   if (platform === 'linkedin') platformInstruction = 'LinkedIn (long-form, professional)';
   if (platform === 'instagram') platformInstruction = 'Instagram (visual-focused with relevant hashtags)';
   
   const response = await client.models.generateContent({
     model: settings.model,
-    contents: `Idea: ${idea}\nTone: ${tone}\nHashtags: ${hashtags}\n\nAct as an expert social media manager. I need a drafted post for ${platformInstruction} based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags if applicable.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive prompt for an AI image generator to create a unique image tailored to this platform's style and audience based on the idea.`,
+    contents: `Idea: ${idea}\nTone: ${tone}${audienceInstruction}${brandVoiceInstruction}\nHashtags: ${hashtags}\n\nAct as an expert social media manager. I need a drafted post for ${platformInstruction} based on the idea and tone. Make sure to accurately and naturally incorporate the provided hashtags if applicable.\n\n${emojiInstruction}\n\nAlso, provide a highly descriptive prompt for an AI image generator to create a unique image tailored to this platform's style and audience based on the idea.`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: {
